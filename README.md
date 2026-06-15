@@ -12,7 +12,8 @@ ZIP is cheaper.
 ## Features
 
 - **Item price, quantity, category, and two ZIP codes** as inputs.
-- Side-by-side breakdown of subtotal, tax rate, sales tax, and total.
+- Side-by-side breakdown of subtotal, **combined rate with its state / county /
+  city / special-district components**, sales tax, and total.
 - A clear verdict: *"Save $X in B · Seattle"* plus the percentage difference.
 - **Category-aware**: groceries, clothing, and prescription drugs apply
   simplified exemption rules per state.
@@ -20,21 +21,30 @@ ZIP is cheaper.
 
 ## Where the tax data comes from
 
-Everything runs **offline — no API key, no signup**:
+Rates come from the **[zip.tax](https://www.zip.tax/) API**, which returns the
+real taxing jurisdictions for a ZIP — state, county, city, and special district
+— not a misleading state-wide average. ([`taxgap/providers.py`](taxgap/providers.py))
 
-| Source | What it covers |
+| Mode | What it covers |
 | --- | --- |
-| `data/state_tax_rates.csv` | Combined state + average-local sales tax rate for every state + DC (Tax Foundation, 2024). |
-| `data/zip_overrides.csv` | Exact combined rates for ~45 major-city ZIPs, so two ZIPs *in the same state* still show a real difference. |
-| ZIP3 prefix table (`taxgap/tax_data.py`) | Maps any valid ZIP's first three digits to a state, so every ZIP resolves to at least a state-average rate. |
+| **Live** (with API key) | Every US ZIP, current rates, full jurisdiction breakdown. Responses are cached for a day to conserve your free quota. |
+| **Demo** (no key) | Only the ~45 major-city ZIPs in [`data/zip_overrides.csv`](data/zip_overrides.csv), with their exact local rates. Any other ZIP returns a clear "add a key" message. |
 
-A ZIP resolves to its **exact** override rate when available, otherwise to the
-**state average**. The app labels which one was used.
+This tool **never falls back to a state-average rate** — a state-wide number is
+the wrong answer for a ZIP-level comparison, so an uncovered ZIP simply reports
+that no rate was found.
 
-> ⚠️ Rates are approximations for the 2024 tax year and category exemptions are
-> simplified. Use for ballpark estimates, not for filing taxes. To make it
-> precise, swap in a live rate API (TaxJar, Avalara, Zip-Tax) in
-> `taxgap/tax_data.py`.
+### Add an API key (free)
+
+1. Get a free key at [zip.tax](https://www.zip.tax/) (100 calls to start).
+2. Provide it any one of these ways:
+   - paste it into the **🔑 API key** expander in the app, or
+   - `export ZIPTAX_API_KEY=...`, or
+   - copy [`.streamlit/secrets.toml.example`](.streamlit/secrets.toml.example)
+     to `.streamlit/secrets.toml` and fill in the key (gitignored).
+
+> ⚠️ A ZIP can span multiple tax jurisdictions; address-level lookup is more
+> precise. Category exemptions are simplified. Use for estimates, not filing.
 
 ## Run it locally
 
@@ -51,17 +61,18 @@ Then open http://localhost:8501.
 
 ```
 app.py                  # Streamlit UI
-taxgap/tax_data.py      # offline ZIP -> rate lookup + category rules
-data/                   # bundled CSV rate tables
+taxgap/providers.py     # zip.tax API client + offline demo provider
+taxgap/tax_data.py      # ZIP normalization, category rules, demo sample data
+data/zip_overrides.csv  # exact rates for ~45 major-city ZIPs (demo mode)
 requirements.txt
 ```
 
 ## Ideas / TODO
 
-- [ ] Live rate API as an optional backend (keyed via `st.secrets`).
-- [ ] More city-level ZIP overrides.
+- [ ] Address-level lookup (rooftop-precise) when a full address is entered.
 - [ ] Annual-spend projection ("buy this monthly → save $X/yr").
 - [ ] Shareable result URLs.
+- [ ] Jurisdiction picker when a ZIP overlaps several tax areas.
 
 ## License
 
