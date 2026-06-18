@@ -82,27 +82,24 @@ st.markdown('<span class="tg-badge live">● All US ZIPs · offline rates</span>
 
 
 # ----------------------------------------------------------------- inputs -----
-with st.form("inputs"):
-    top = st.columns([1.3, 1])
-    with top[0]:
-        price = st.number_input("Item price ($)", min_value=0.0, value=999.00,
-                                step=10.0, format="%.2f")
-    with top[1]:
-        qty = st.number_input("Quantity", min_value=1, value=1, step=1)
+# No form/button: each committed input change reruns and the result updates live.
+top = st.columns([1.3, 1])
+with top[0]:
+    price = st.number_input("Item price ($)", min_value=0.0, value=999.00,
+                            step=10.0, format="%.2f")
+with top[1]:
+    qty = st.number_input("Quantity", min_value=1, value=1, step=1)
 
-    category = st.selectbox("Item category", list(CATEGORIES.keys()))
-    st.caption(CATEGORIES[category])
+category = st.selectbox("Item category", list(CATEGORIES.keys()))
+st.caption(CATEGORIES[category])
 
-    zips = st.columns(2)
-    with zips[0]:
-        zip_a = st.text_input("ZIP code A", value="97201", max_chars=10,
-                              help="e.g. 97201 (Portland, OR — no sales tax)")
-    with zips[1]:
-        zip_b = st.text_input("ZIP code B", value="98101", max_chars=10,
-                              help="e.g. 98101 (Seattle, WA)")
-
-    submitted = st.form_submit_button("Compare", use_container_width=True,
-                                      type="primary")
+zips = st.columns(2)
+with zips[0]:
+    zip_a = st.text_input("ZIP code A", value="97201", max_chars=10,
+                          help="e.g. 97201 (Portland, OR — no sales tax)")
+with zips[1]:
+    zip_b = st.text_input("ZIP code B", value="98101", max_chars=10,
+                          help="e.g. 98101 (Seattle, WA)")
 
 
 def render_card(label: str, result, jur, price: float, qty: int, category: str):
@@ -144,69 +141,63 @@ def render_card(label: str, result, jur, price: float, qty: int, category: str):
             "label": label, "state_code": jur.state_code}
 
 
-if submitted:
-    res_a = providers.lookup(zip_a)
-    res_b = providers.lookup(zip_b)
+res_a = providers.lookup(zip_a)
+res_b = providers.lookup(zip_b)
 
-    problems = []
-    if res_a is None:
-        problems.append(f"No rate found for ZIP A (“{zip_a}”). "
-                        "Check it's a valid US ZIP code.")
-    if res_b is None:
-        problems.append(f"No rate found for ZIP B (“{zip_b}”). "
-                        "Check it's a valid US ZIP code.")
+if res_a and res_b:
+    st.write("")
+    jur_a, jur_b = res_a.primary, res_b.primary
+    cols = st.columns(2)
+    with cols[0]:
+        a = render_card("A", res_a, jur_a, price, qty, category)
+    with cols[1]:
+        b = render_card("B", res_b, jur_b, price, qty, category)
 
-    if problems:
-        for p in problems:
-            st.error(p)
-    else:
-        st.write("")
-        jur_a, jur_b = res_a.primary, res_b.primary
-        cols = st.columns(2)
-        with cols[0]:
-            a = render_card("A", res_a, jur_a, price, qty, category)
-        with cols[1]:
-            b = render_card("B", res_b, jur_b, price, qty, category)
+    tax_diff = abs(a["tax"] - b["tax"])
+    total_diff = abs(a["total"] - b["total"])
 
-        tax_diff = abs(a["tax"] - b["tax"])
-        total_diff = abs(a["total"] - b["total"])
-
-        if total_diff < 0.005:
-            st.markdown(
-                '<div class="tg-verdict tie"><div class="big">It\'s a wash</div>'
-                '<div class="small">Both ZIPs cost the same on this purchase.</div></div>',
-                unsafe_allow_html=True,
-            )
-        else:
-            cheaper = a if a["total"] < b["total"] else b
-            pct = total_diff / max(a["total"], b["total"]) * 100
-            st.markdown(
-                f"""
-                <div class="tg-verdict">
-                  <div class="big">Save ${total_diff:,.2f} in {cheaper['label']} · {cheaper['where']}</div>
-                  <div class="small">${tax_diff:,.2f} less sales tax &nbsp;·&nbsp;
-                  {pct:.1f}% lower total &nbsp;·&nbsp; on {qty} item{'s' if qty > 1 else ''}</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
-        chart_df = pd.DataFrame(
-            {
-                "Location": [f"A · {a['where']}", f"B · {b['where']}"],
-                "Subtotal": [a["subtotal"], b["subtotal"]],
-                "Sales tax": [a["tax"], b["tax"]],
-            }
-        ).set_index("Location")
-        st.markdown("###### Cost breakdown")
-        st.bar_chart(chart_df, color=["#a5b4fc", "#4f46e5"], height=240)
-
+    if total_diff < 0.005:
         st.markdown(
-            '<p class="tg-note">Rates from bundled Avalara ZIP-level tables '
-            "(state + county + city + special district). A ZIP can span multiple "
-            "tax jurisdictions; address-level lookup is more precise. Category "
-            "exemptions are simplified. For estimates only.</p>",
+            '<div class="tg-verdict tie"><div class="big">It\'s a wash</div>'
+            '<div class="small">Both ZIPs cost the same on this purchase.</div></div>',
             unsafe_allow_html=True,
         )
+    else:
+        cheaper = a if a["total"] < b["total"] else b
+        pct = total_diff / max(a["total"], b["total"]) * 100
+        st.markdown(
+            f"""
+            <div class="tg-verdict">
+              <div class="big">Save ${total_diff:,.2f} in {cheaper['label']} · {cheaper['where']}</div>
+              <div class="small">${tax_diff:,.2f} less sales tax &nbsp;·&nbsp;
+              {pct:.1f}% lower total &nbsp;·&nbsp; on {qty} item{'s' if qty > 1 else ''}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    chart_df = pd.DataFrame(
+        {
+            "Location": [f"A · {a['where']}", f"B · {b['where']}"],
+            "Subtotal": [a["subtotal"], b["subtotal"]],
+            "Sales tax": [a["tax"], b["tax"]],
+        }
+    ).set_index("Location")
+    st.markdown("###### Cost breakdown")
+    st.bar_chart(chart_df, color=["#a5b4fc", "#4f46e5"], height=240)
+
+    st.markdown(
+        '<p class="tg-note">Rates from bundled Avalara ZIP-level tables '
+        "(state + county + city + special district). A ZIP can span multiple "
+        "tax jurisdictions; address-level lookup is more precise. Category "
+        "exemptions are simplified. For estimates only.</p>",
+        unsafe_allow_html=True,
+    )
 else:
-    st.info("Enter a price and two ZIP codes, then hit **Compare**.")
+    # Only flag a ZIP the user has actually typed — don't nag on empty fields.
+    if zip_a.strip() and res_a is None:
+        st.warning(f"ZIP A (“{zip_a}”) isn't a valid US ZIP code.")
+    if zip_b.strip() and res_b is None:
+        st.warning(f"ZIP B (“{zip_b}”) isn't a valid US ZIP code.")
+    if not (zip_a.strip() and zip_b.strip()):
+        st.info("Enter a price and two ZIP codes to see the comparison.")
