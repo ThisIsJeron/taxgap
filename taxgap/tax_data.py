@@ -1,20 +1,22 @@
-"""Shared helpers for taxgap: ZIP normalization, category rules, and the small
-offline sample of exact per-ZIP rates used in demo mode.
+"""Shared helpers for taxgap: ZIP normalization, category rules, and the loader
+for the bundled all-ZIP rate table.
 
-Rate *sourcing* lives in ``taxgap/providers.py`` (zip.tax API). This module is
-deliberately free of any state-average fallback — a state-wide rate is the
-wrong answer for a ZIP-level tool, so we never produce one.
+Rate *sourcing* lives in ``taxgap/providers.py``, which builds results from the
+bundled dataset loaded here. This module is deliberately free of any
+state-average fallback — a state-wide rate is the wrong answer for a ZIP-level
+tool, so an uncovered ZIP simply reports no rate.
 """
 
 from __future__ import annotations
 
 import csv
+import gzip
 import os
 from functools import lru_cache
 from typing import Optional
 
 _DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
-_ZIP_CSV = os.path.join(_DATA_DIR, "zip_overrides.csv")
+_ZIP_RATES_CSV = os.path.join(_DATA_DIR, "us_zip_rates.csv.gz")
 
 # State/territory code -> display name (for labeling API results).
 STATE_NAMES = {
@@ -82,14 +84,22 @@ def apply_category(state_code: str, combined_rate: float, category: str):
 
 
 @lru_cache(maxsize=1)
-def _zip_overrides() -> dict:
-    """Exact per-ZIP combined rates for major cities (offline demo mode)."""
+def _zip_rates() -> dict:
+    """Bundled offline rates for every US ZIP, keyed by 5-digit ZIP.
+
+    Regenerate the underlying ``data/us_zip_rates.csv.gz`` with
+    ``scripts/build_rates.py`` (see that script for the refresh procedure).
+    """
     table = {}
-    with open(_ZIP_CSV, newline="", encoding="utf-8") as fh:
+    with gzip.open(_ZIP_RATES_CSV, "rt", newline="", encoding="utf-8") as fh:
         for row in csv.DictReader(fh):
-            table[row["zip"].zfill(5)] = {
-                "city": row["city"],
+            table[row["zip"]] = {
+                "region": row["region"],
                 "state_code": row["state_code"],
                 "combined_rate": float(row["combined_rate"]),
+                "state_rate": float(row["state_rate"]),
+                "county_rate": float(row["county_rate"]),
+                "city_rate": float(row["city_rate"]),
+                "special_rate": float(row["special_rate"]),
             }
     return table

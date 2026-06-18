@@ -21,30 +21,31 @@ ZIP is cheaper.
 
 ## Where the tax data comes from
 
-Rates come from the **[zip.tax](https://www.zip.tax/) API**, which returns the
-real taxing jurisdictions for a ZIP — state, county, city, and special district
-— not a misleading state-wide average. ([`taxgap/providers.py`](taxgap/providers.py))
+Rates come from a **bundled, offline dataset covering every US ZIP** —
+[`data/us_zip_rates.csv.gz`](data/us_zip_rates.csv.gz) (~41k ZIPs). Each ZIP
+carries its real taxing jurisdictions — state, county, city, and special
+district — not a misleading state-wide average.
+([`taxgap/providers.py`](taxgap/providers.py))
 
-| Mode | What it covers |
-| --- | --- |
-| **Live** (with API key) | Every US ZIP, current rates, full jurisdiction breakdown. Responses are cached for a day to conserve your free quota. |
-| **Demo** (no key) | Only the ~45 major-city ZIPs in [`data/zip_overrides.csv`](data/zip_overrides.csv), with their exact local rates. Any other ZIP returns a clear "add a key" message. |
+**No API key, no network, no rate limits** — every ZIP works out of the box.
+This tool **never falls back to a state-average rate**; an uncovered or invalid
+ZIP simply reports that no rate was found.
 
-This tool **never falls back to a state-average rate** — a state-wide number is
-the wrong answer for a ZIP-level comparison, so an uncovered ZIP simply reports
-that no rate was found.
+The dataset is built from **[Avalara's free ZIP-level rate tables](https://www.avalara.com/taxrates/en/download-tax-tables.html)**.
 
-### Add an API key (free)
+> ⚠️ ZIP-level rates are estimates — a ZIP can span multiple tax jurisdictions,
+> and address-level lookup is more precise. Category exemptions are simplified.
+> Use for estimates, not filing.
 
-1. Get a free key at [zip.tax](https://www.zip.tax/) (100 calls to start).
-2. Provide it any one of these ways:
-   - paste it into the **🔑 API key** expander in the app, or
-   - `export ZIPTAX_API_KEY=...`, or
-   - copy [`.streamlit/secrets.toml.example`](.streamlit/secrets.toml.example)
-     to `.streamlit/secrets.toml` and fill in the key (gitignored).
+### Refreshing the rates (Avalara updates monthly)
 
-> ⚠️ A ZIP can span multiple tax jurisdictions; address-level lookup is more
-> precise. Category exemptions are simplified. Use for estimates, not filing.
+1. Download the free state rate tables from
+   [Avalara](https://www.avalara.com/taxrates/en/download-tax-tables.html)
+   (select every state, submit the form). Files are named
+   `TAXRATES_ZIP5_<ST><YYYYMM>.csv`.
+2. Drop the CSVs into `data/raw/` (gitignored).
+3. Run `python scripts/build_rates.py` to regenerate
+   `data/us_zip_rates.csv.gz`, then commit it.
 
 ## Run it locally
 
@@ -60,10 +61,11 @@ Then open http://localhost:8501.
 ## Project layout
 
 ```
-app.py                  # Streamlit UI
-taxgap/providers.py     # zip.tax API client + offline demo provider
-taxgap/tax_data.py      # ZIP normalization, category rules, demo sample data
-data/zip_overrides.csv  # exact rates for ~45 major-city ZIPs (demo mode)
+app.py                    # Streamlit UI
+taxgap/providers.py       # bundled-dataset lookup + result types
+taxgap/tax_data.py        # ZIP normalization, category rules, dataset loader
+scripts/build_rates.py    # rebuild the bundle from Avalara CSVs in data/raw/
+data/us_zip_rates.csv.gz  # bundled rates for every US ZIP (committed)
 requirements.txt
 ```
 

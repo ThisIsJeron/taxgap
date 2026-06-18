@@ -1,8 +1,8 @@
 """taxgap — compare the sales-tax cost of a purchase across two ZIP codes.
 
-Rates come from the zip.tax API (real state/county/city/district breakdown per
-ZIP). Without an API key the app runs in a limited offline "demo mode" that only
-covers a handful of major-city ZIPs — it never falls back to a state average.
+Rates come from a bundled, offline dataset covering every US ZIP (real
+state/county/city/district breakdown per ZIP). No API key, no network — it never
+falls back to a state average, so an uncovered ZIP simply reports no rate.
 """
 
 from __future__ import annotations
@@ -12,13 +12,6 @@ import streamlit as st
 
 from taxgap import providers
 from taxgap.tax_data import CATEGORIES, apply_category
-from taxgap.providers import (
-    ApiError,
-    AuthError,
-    MissingKeyError,
-    RateLimitError,
-    get_api_key,
-)
 
 st.set_page_config(
     page_title="taxgap — sales tax difference calculator",
@@ -47,7 +40,6 @@ st.markdown(
       .tg-badge { display: inline-block; padding: .12rem .6rem; border-radius: 999px;
                   font-size: .76rem; font-weight: 600; margin-bottom: .4rem; }
       .tg-badge.live { background: rgba(16,185,129,.15); color: #059669; }
-      .tg-badge.demo { background: rgba(245,158,11,.15); color: #b45309; }
 
       .tg-card {
         border: 1px solid rgba(128,128,128,.18); border-radius: 16px;
@@ -84,34 +76,9 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# --------------------------------------------------------- key / data mode ----
-if "api_key" not in st.session_state:
-    st.session_state.api_key = get_api_key() or ""
-
-api_key = st.session_state.api_key or None
-
-if api_key:
-    st.markdown('<span class="tg-badge live">● Live data · zip.tax</span>',
-                unsafe_allow_html=True)
-else:
-    st.markdown('<span class="tg-badge demo">● Demo mode · ~45 major-city ZIPs</span>',
-                unsafe_allow_html=True)
-
-with st.expander("🔑 API key" + ("" if api_key else " — add one for full ZIP coverage")):
-    st.write(
-        "taxgap uses the free [zip.tax](https://www.zip.tax/) API for real "
-        "state / county / city / district rates by ZIP. Grab a free key "
-        "(100 calls to start), then paste it below or set it as the "
-        "`ZIPTAX_API_KEY` environment variable / Streamlit secret."
-    )
-    entered = st.text_input("zip.tax API key", value=st.session_state.api_key,
-                            type="password", placeholder="paste key here")
-    if entered != st.session_state.api_key:
-        st.session_state.api_key = entered.strip()
-        st.rerun()
-    if not api_key:
-        st.caption("Without a key, only these demo ZIPs work: 97201, 98101, "
-                   "10001, 60601, 90001, 33101, 02108, 80202, 73301, 30301, …")
+# --------------------------------------------------------------- data mode ----
+st.markdown('<span class="tg-badge live">● All US ZIPs · offline rates</span>',
+            unsafe_allow_html=True)
 
 
 # ----------------------------------------------------------------- inputs -----
@@ -138,42 +105,20 @@ with st.form("inputs"):
                                       type="primary")
 
 
-@st.cache_data(ttl=86400, show_spinner=False)
-def cached_lookup(zip_code: str, key: str):
-    """Cache successful lookups for a day to conserve the API quota."""
-    return providers.lookup(zip_code, key or None)
-
-
-def resolve(zip_code: str, key: str):
-    """Return (RateResult|None, error_message|None)."""
-    try:
-        return cached_lookup(zip_code, key), None
-    except MissingKeyError:
-        return None, "Add a zip.tax API key above to look up this ZIP."
-    except RateLimitError:
-        return None, "zip.tax free quota is used up — try again later or upgrade your key."
-    except AuthError:
-        return None, "That zip.tax API key was rejected. Double-check it."
-    except ApiError as exc:
-        return None, f"Couldn't reach zip.tax: {exc}"
-
-
 def render_card(label: str, result, jur, price: float, qty: int, category: str):
     subtotal = price * qty
     eff_rate, note = apply_category(jur.state_code, jur.combined_rate, category)
     tax = subtotal * eff_rate / 100.0
     total = subtotal + tax
     where = (jur.city.title() if jur.city else jur.state_name)
-    src = "live · zip.tax" if result.source == "live" else "demo · exact local rate"
+    src = "estimated · Avalara ZIP rate"
 
-    breakdown = ""
-    if result.source == "live":
-        rows = [("State", jur.state_rate), ("County", jur.county_rate),
-                ("City", jur.city_rate), ("Special", jur.special_rate)]
-        breakdown = "".join(
-            f'<div class="tg-break"><span>{n}</span><span>{v:.3f}%</span></div>'
-            for n, v in rows if v
-        )
+    rows = [("State", jur.state_rate), ("County", jur.county_rate),
+            ("City", jur.city_rate), ("Special", jur.special_rate)]
+    breakdown = "".join(
+        f'<div class="tg-break"><span>{n}</span><span>{v:.3f}%</span></div>'
+        for n, v in rows if v
+    )
 
     st.markdown(
         f"""
@@ -200,26 +145,16 @@ def render_card(label: str, result, jur, price: float, qty: int, category: str):
 
 
 if submitted:
-    res_a, err_a = resolve(zip_a, st.session_state.api_key)
-    res_b, err_b = resolve(zip_b, st.session_state.api_key)
+    res_a = providers.lookup(zip_a)
+    res_b = providers.lookup(zip_b)
 
     problems = []
-    if err_a:
-        problems.append(f"ZIP A (“{zip_a}”): {err_a}")
-    elif res_a is None:
-        problems.append(
-            f"No rate found for ZIP A (“{zip_a}”). "
-            + ("Check it's a valid US ZIP." if api_key
-               else "Not in demo mode — add an API key for full coverage.")
-        )
-    if err_b:
-        problems.append(f"ZIP B (“{zip_b}”): {err_b}")
-    elif res_b is None:
-        problems.append(
-            f"No rate found for ZIP B (“{zip_b}”). "
-            + ("Check it's a valid US ZIP." if api_key
-               else "Not in demo mode — add an API key for full coverage.")
-        )
+    if res_a is None:
+        problems.append(f"No rate found for ZIP A (“{zip_a}”). "
+                        "Check it's a valid US ZIP code.")
+    if res_b is None:
+        problems.append(f"No rate found for ZIP B (“{zip_b}”). "
+                        "Check it's a valid US ZIP code.")
 
     if problems:
         for p in problems:
@@ -266,12 +201,10 @@ if submitted:
         st.markdown("###### Cost breakdown")
         st.bar_chart(chart_df, color=["#a5b4fc", "#4f46e5"], height=240)
 
-        src_note = ("Rates from the zip.tax API (state + county + city + special "
-                    "district, current). " if res_a.source == "live"
-                    else "Demo mode: bundled exact rates for a few major-city ZIPs. ")
         st.markdown(
-            f'<p class="tg-note">{src_note}A ZIP can span multiple tax '
-            "jurisdictions; address-level lookup is more precise. Category "
+            '<p class="tg-note">Rates from bundled Avalara ZIP-level tables '
+            "(state + county + city + special district). A ZIP can span multiple "
+            "tax jurisdictions; address-level lookup is more precise. Category "
             "exemptions are simplified. For estimates only.</p>",
             unsafe_allow_html=True,
         )
